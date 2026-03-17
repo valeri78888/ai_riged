@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SKELETON RIG — AR Overlay</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;500;700&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#000;overflow:hidden;height:100vh;width:100vw;font-family:'Rajdhani',sans-serif}
+
+  #videoWrap{position:fixed;inset:0;z-index:0;display:flex;align-items:center;justify-content:center;background:#000}
+  video{height:100%;width:100%;object-fit:cover;transform:scaleX(-1)}
+  /* Darken video slightly so rig pops */
+  #videoWrap::after{content:'';position:absolute;inset:0;background:rgba(0,0,0,0.15);pointer-events:none}
+
+  #c{position:fixed;inset:0;z-index:10;pointer-events:none}
+
+  /* Scanline overlay */
+  .scan{position:fixed;inset:0;z-index:20;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,255,200,0.006) 3px,rgba(0,255,200,0.006) 6px);pointer-events:none}
+
+  /* HUD */
+  .hud-top{
+    position:fixed;top:0;left:0;right:0;z-index:50;
+    padding:10px 16px;display:flex;align-items:center;justify-content:space-between;
+    background:linear-gradient(180deg,rgba(0,0,0,0.6),transparent);
+  }
+  .logo{font-family:'Orbitron',sans-serif;font-weight:900;font-size:16px;color:#00ffc8;text-shadow:0 0 15px rgba(0,255,200,0.5);letter-spacing:2px}
+  .logo span{color:#ff3e8a}
+  .logo .v{font-size:7px;color:rgba(255,255,255,0.2);margin-left:6px;font-weight:400;letter-spacing:1px}
+  .hr{display:flex;align-items:center;gap:8px}
+  .tr{display:flex;gap:4px}
+  .tb{
+    font-family:'Orbitron',sans-serif;font-size:7px;letter-spacing:1px;
+    padding:3px 7px;border:1px solid rgba(255,255,255,0.15);border-radius:3px;
+    background:rgba(0,0,0,0.4);color:rgba(255,255,255,0.35);cursor:pointer;
+    transition:all 0.2s;user-select:none;backdrop-filter:blur(4px);
+  }
+  .tb.on{border-color:rgba(0,255,200,0.5);color:#00ffc8;background:rgba(0,255,200,0.08)}
+  #status{
+    font-family:'Orbitron',sans-serif;font-size:8px;letter-spacing:2px;
+    padding:3px 10px;border:1px solid rgba(0,255,200,0.3);border-radius:16px;
+    background:rgba(0,0,0,0.4);color:#00ffc8;backdrop-filter:blur(4px);
+  }
+  #status.active{border-color:#00ffc8;box-shadow:0 0 10px rgba(0,255,200,0.2);animation:p 2s ease-in-out infinite}
+  #status.loading{border-color:#ffaa00;color:#ffaa00}
+  #status.error{border-color:#ff3e8a;color:#ff3e8a}
+  @keyframes p{0%,100%{box-shadow:0 0 10px rgba(0,255,200,0.15)}50%{box-shadow:0 0 20px rgba(0,255,200,0.35)}}
+
+  .hud-bot{
+    position:fixed;bottom:0;left:0;right:0;z-index:50;
+    padding:8px 16px;display:flex;align-items:center;justify-content:center;gap:20px;
+    background:linear-gradient(0deg,rgba(0,0,0,0.6),transparent);
+    font-family:'Orbitron',sans-serif;font-size:7px;letter-spacing:2px;color:rgba(0,255,200,0.3);
+  }
+  .si span{color:#00ffc8;font-weight:700}
+
+  /* Start overlay */
+  .ov{
+    position:fixed;inset:0;z-index:200;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    background:rgba(0,0,0,0.92);backdrop-filter:blur(20px);
+    transition:opacity 0.5s,visibility 0.5s;
+  }
+  .ov.h{opacity:0;visibility:hidden;pointer-events:none}
+  .ov h1{font-family:'Orbitron',sans-serif;font-size:36px;font-weight:900;color:#00ffc8;text-shadow:0 0 30px rgba(0,255,200,0.3);margin-bottom:4px}
+  .ov h1 span{color:#ff3e8a}
+  .ov .sub{font-family:'Orbitron',sans-serif;font-size:9px;color:rgba(255,255,255,0.15);letter-spacing:4px;margin-bottom:24px}
+  .ov p{font-size:13px;color:rgba(255,255,255,0.3);margin-bottom:28px;text-align:center;max-width:400px;line-height:1.6}
+  #startBtn{
+    font-family:'Orbitron',sans-serif;font-size:12px;font-weight:700;letter-spacing:3px;
+    padding:12px 44px;border:2px solid #00ffc8;border-radius:50px;
+    background:transparent;color:#00ffc8;cursor:pointer;transition:all 0.3s;
+  }
+  #startBtn:hover{background:rgba(0,255,200,0.08);box-shadow:0 0 25px rgba(0,255,200,0.2);transform:scale(1.04)}
+  #lm{font-family:'Orbitron',sans-serif;font-size:9px;color:#ffaa00;margin-top:16px;display:none;text-align:center;line-height:2;letter-spacing:1px}
+</style>
+</head>
+<body>
+
+<div id="videoWrap"><video id="vid" autoplay playsinline></video></div>
+<canvas id="c"></canvas>
+<div class="scan"></div>
+
+<div class="hud-top">
+  <div class="logo">RIG<span>.AR</span><span class="v">OVERLAY</span></div>
+  <div class="hr">
+    <div class="tr">
+      <div class="tb on" id="tB" onclick="tgl('body',this)">ТЕЛО</div>
+      <div class="tb on" id="tH" onclick="tgl('hands',this)">РУКИ</div>
+      <div class="tb on" id="tF" onclick="tgl('face',this)">ЛИЦО</div>
+      <div class="tb on" id="tG" onclick="tgl('glow',this)">СВЕЧЕНИЕ</div>
+    </div>
+    <div id="status">ОЖИДАНИЕ</div>
+  </div>
+</div>
+
+<div class="hud-bot">
+  <div class="si">FPS <span id="sf">0</span></div>
+  <div class="si">ТЕЛО <span id="sb">0</span></div>
+  <div class="si">РУКИ <span id="sh">0</span></div>
+  <div class="si">ЛИЦО <span id="sfc">0</span></div>
+</div>
+
+<div class="ov" id="ov">
+  <h1>RIG<span>.AR</span></h1>
+  <div class="sub">SKELETON OVERLAY</div>
+  <p>Скелет рисуется прямо поверх камеры — как риг на твоём теле. Тело, руки с пальцами, лицевая сетка.</p>
+  <button id="startBtn" onclick="startApp()">ЗАПУСТИТЬ</button>
+  <div id="lm"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic@0.5.1675471629/holistic.js" crossorigin="anonymous"></script>
+<script>
+var vid=document.getElementById('vid'),
+    can=document.getElementById('c'),
+    cx=can.getContext('2d'),
+    stEl=document.getElementById('status'),
+    ovEl=document.getElementById('ov'),
+    lmEl=document.getElementById('lm');
+
+var cw=0,ch=0,lt=0,fc=0,fps=0;
+var R=null;
+var opts={body:1,hands:1,face:1,glow:1};
+function tgl(k,el){opts[k]=opts[k]?0:1;el.classList.toggle('on')}
+
+// Smoothing
+var sP=null,sL=null,sR=null;
+function lerp(a,b,t){return a+(b-a)*t}
+function sm(prev,cur,f){
+  var n=cur.length;
+  if(!prev||prev.length!==n){
+    prev=new Array(n);
+    for(var i=0;i<n;i++) prev[i]={x:cur[i].x,y:cur[i].y,v:cur[i].visibility||1};
+    return prev;
+  }
+  for(var i=0;i<n;i++){
+    var v=cur[i].visibility||1;
+    if(v>0.15){prev[i].x=lerp(prev[i].x,cur[i].x,f);prev[i].y=lerp(prev[i].y,cur[i].y,f)}
+    prev[i].v=v;
+  }
+  return prev;
+}
+
+// Colors
+var C={
+  bone:'#00ffc8', joint:'#00ffc8',
+  la:'#ff3e8a',ra:'#ffaa00',ll:'#aa55ff',rl:'#33ff88',
+  torso:'#00b4ff',
+  lh:'#ff6eb4',rh:'#ffc846',
+  face:'#00ffc8',eye:'#00ddff',lip:'#ff3e8a',
+};
+
+// Body connections
+var BC=[[11,12],[11,23],[12,24],[23,24],[11,13],[13,15],[15,17],[15,19],[15,21],[17,19],[12,14],[14,16],[16,18],[16,20],[16,22],[18,20],[23,25],[25,27],[27,29],[27,31],[29,31],[24,26],[26,28],[28,30],[28,32],[30,32]];
+
+function bCol(i,j){
+  if([11,13,15,17,19,21].indexOf(i)!==-1&&[11,13,15,17,19,21].indexOf(j)!==-1) return C.la;
+  if([12,14,16,18,20,22].indexOf(i)!==-1&&[12,14,16,18,20,22].indexOf(j)!==-1) return C.ra;
+  if([23,25,27,29,31].indexOf(i)!==-1&&[23,25,27,29,31].indexOf(j)!==-1) return C.ll;
+  if([24,26,28,30,32].indexOf(i)!==-1&&[24,26,28,30,32].indexOf(j)!==-1) return C.rl;
+  return C.torso;
+}
+function jCol(i){
+  if([11,13,15,17,19,21].indexOf(i)!==-1) return C.la;
+  if([12,14,16,18,20,22].indexOf(i)!==-1) return C.ra;
+  if([23,25,27,29,31].indexOf(i)!==-1) return C.ll;
+  if([24,26,28,30,32].indexOf(i)!==-1) return C.rl;
+  return C.torso;
+}
+function jR(i){return[11,12,23,24].indexOf(i)!==-1?8:[13,14,25,26].indexOf(i)!==-1?6:4}
+
+// Hand
+var HC=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[0,9],[9,10],[10,11],[11,12],[0,13],[13,14],[14,15],[15,16],[0,17],[17,18],[18,19],[19,20],[5,9],[9,13],[13,17]];
+var TIPS=[4,8,12,16,20];
+
+// Face paths
+var FO=[10,338,297,332,284,251,389,356,454,323,361,288,397,365,379,378,400,377,152,148,176,149,150,136,172,58,132,93,234,127,162,21,54,103,67,109,10];
+var FLE=[263,249,390,373,374,380,381,382,362,263];
+var FRE=[33,7,163,144,145,153,154,155,133,33];
+var FLO=[61,146,91,181,84,17,314,405,321,375,291,409,270,269,267,0,37,39,40,185,61];
+var FLI=[78,95,88,178,87,14,317,402,318,324,308,415,310,311,312,13,82,81,80,191,78];
+var FLB=[276,283,282,295,300];
+var FRB=[46,53,52,65,70];
+var FNOSE=[168,6,197,195,5,4,1,19,94,2,164];
+
+// Resize
+function resize(){
+  cw=window.innerWidth;ch=window.innerHeight;
+  var d=window.devicePixelRatio||1;
+  can.width=cw*d;can.height=ch*d;
+  can.style.width=cw+'px';can.style.height=ch+'px';
+  cx.setTransform(d,0,0,d,0,0);
+}
+
+// Map normalized landmark to screen (mirrored)
+function mx(v){return(1-v)*cw}
+function my(v){return v*ch}
+
+// Drawing — NO shadowBlur anywhere
+function bone(x1,y1,x2,y2,col,w){
+  if(opts.glow){
+    cx.strokeStyle=col;cx.lineWidth=w*3;cx.globalAlpha=0.12;cx.lineCap='round';
+    cx.beginPath();cx.moveTo(x1,y1);cx.lineTo(x2,y2);cx.stroke();
+  }
+  cx.strokeStyle=col;cx.lineWidth=w;cx.globalAlpha=0.9;cx.lineCap='round';
+  cx.beginPath();cx.moveTo(x1,y1);cx.lineTo(x2,y2);cx.stroke();
+  cx.globalAlpha=1;
+}
+
+function dot(x,y,r,col){
+  if(opts.glow){
+    cx.fillStyle=col;cx.globalAlpha=0.12;
+    cx.beginPath();cx.arc(x,y,r+4,0,6.283);cx.fill();
+  }
+  cx.fillStyle=col;cx.globalAlpha=0.9;
+  cx.beginPath();cx.arc(x,y,r,0,6.283);cx.fill();
+  cx.fillStyle='#fff';cx.globalAlpha=0.7;
+  cx.beginPath();cx.arc(x,y,r*0.25,0,6.283);cx.fill();
+  cx.globalAlpha=1;
+}
+
+function fPath(face,idx,col,a,w){
+  if(idx.length<2)return;
+  cx.strokeStyle=col;cx.lineWidth=w;cx.globalAlpha=a;cx.lineCap='round';cx.lineJoin='round';
+  cx.beginPath();
+  var started=false;
+  for(var i=0;i<idx.length;i++){
+    var p=face[idx[i]];if(!p)continue;
+    if(!started){cx.moveTo(mx(p.x),my(p.y));started=true}
+    else cx.lineTo(mx(p.x),my(p.y));
+  }
+  cx.stroke();
+  cx.globalAlpha=1;
+}
+
+// Preallocated mapped arrays
+var mB=new Array(33);for(var i=0;i<33;i++)mB[i]={x:0,y:0,v:0};
+var mH=new Array(21);for(var i=0;i<21;i++)mH[i]={x:0,y:0};
+
+function draw(now){
+  cx.clearRect(0,0,cw,ch);
+  if(!R) return;
+
+  var pose=R.poseLandmarks,lHand=R.leftHandLandmarks,rHand=R.rightHandLandmarks,face=R.faceLandmarks;
+  var bCnt=0,hCnt=0,fCnt=0;
+
+  if(pose) sP=sm(sP,pose,0.5);
+  if(lHand) sL=sm(sL,lHand,0.55); else sL=null;
+  if(rHand) sR=sm(sR,rHand,0.55); else sR=null;
+
+  // ===== BODY =====
+  if(opts.body&&sP){
+    for(var i=0;i<sP.length&&i<33;i++){mB[i].x=mx(sP[i].x);mB[i].y=my(sP[i].y);mB[i].v=sP[i].v}
+
+    // Torso fill
+    var ls=mB[11],rs=mB[12],lh=mB[23],rh=mB[24];
+    if(ls.v>0.3&&rs.v>0.3&&lh.v>0.3&&rh.v>0.3){
+      cx.fillStyle=C.torso;cx.globalAlpha=0.06;
+      cx.beginPath();cx.moveTo(ls.x,ls.y);cx.lineTo(rs.x,rs.y);cx.lineTo(rh.x,rh.y);cx.lineTo(lh.x,lh.y);cx.closePath();cx.fill();
+      cx.globalAlpha=1;
+    }
+
+    // Bones
+    for(var b=0;b<BC.length;b++){
+      var ci=BC[b][0],cj=BC[b][1],a=mB[ci],bb=mB[cj];
+      if(a.v>0.3&&bb.v>0.3) bone(a.x,a.y,bb.x,bb.y,bCol(ci,cj),3);
+    }
+
+    // Joints (skip face 0-10)
+    for(var i=11;i<33;i++){
+      var p=mB[i];
+      if(p.v>0.3){bCnt++;dot(p.x,p.y,jR(i),jCol(i))}
+    }
+
+    // Head circle
+    var nose=mB[0],le=mB[7],re=mB[8];
+    if(nose.v>0.3&&le.v>0.2&&re.v>0.2){
+      bCnt++;
+      var hr=Math.abs(re.x-le.x)*0.65;
+      if(opts.glow){
+        cx.strokeStyle=C.face;cx.lineWidth=hr*0.4;cx.globalAlpha=0.04;
+        cx.beginPath();cx.ellipse(nose.x,nose.y-hr*0.05,hr,hr*1.15,0,0,6.283);cx.stroke();
+      }
+      cx.strokeStyle=C.face;cx.lineWidth=1.5;cx.globalAlpha=0.35;
+      cx.beginPath();cx.ellipse(nose.x,nose.y-hr*0.05,hr,hr*1.15,0,0,6.283);cx.stroke();
+      cx.globalAlpha=1;
+    }
+  }
+
+  // ===== HANDS =====
+  if(opts.hands){
+    var drawH=function(hand,col){
+      if(!hand)return 0;
+      for(var i=0;i<hand.length&&i<21;i++){mH[i].x=mx(hand[i].x);mH[i].y=my(hand[i].y)}
+      for(var b=0;b<HC.length;b++){
+        bone(mH[HC[b][0]].x,mH[HC[b][0]].y,mH[HC[b][1]].x,mH[HC[b][1]].y,col,1.5);
+      }
+      for(var i=0;i<21;i++){
+        var r=i===0?4:(TIPS.indexOf(i)!==-1?3:1.8);
+        dot(mH[i].x,mH[i].y,r,col);
+      }
+      // Fingertip extra glow
+      if(opts.glow){
+        for(var t=0;t<TIPS.length;t++){
+          var ti=TIPS[t];
+          cx.fillStyle=col;cx.globalAlpha=0.1;
+          cx.beginPath();cx.arc(mH[ti].x,mH[ti].y,8,0,6.283);cx.fill();
+        }
+        cx.globalAlpha=1;
+      }
+      return 21;
+    };
+    hCnt+=drawH(sL,C.lh);
+    hCnt+=drawH(sR,C.rh);
+  }
+
+  // ===== FACE =====
+  if(opts.face&&face&&face.length>0){
+    fCnt=face.length;
+
+    // Outline
+    fPath(face,FO,C.face,0.2,1);
+
+    // Eyes
+    fPath(face,FLE,C.eye,0.45,1.2);
+    fPath(face,FRE,C.eye,0.45,1.2);
+
+    // Eyebrows
+    fPath(face,FLB,C.face,0.3,0.8);
+    fPath(face,FRB,C.face,0.3,0.8);
+
+    // Lips
+    fPath(face,FLO,C.lip,0.4,1);
+    fPath(face,FLI,C.lip,0.25,0.7);
+
+    // Nose
+    fPath(face,FNOSE,C.face,0.2,0.7);
+
+    // Iris dots
+    if(face.length>473){
+      cx.fillStyle=C.eye;cx.globalAlpha=0.6;
+      for(var e=468;e<474;e++){
+        if(!face[e])continue;
+        cx.beginPath();cx.arc(mx(face[e].x),my(face[e].y),2.5,0,6.283);cx.fill();
+      }
+      cx.globalAlpha=1;
+    }
+
+    // Face mesh dots (sparse)
+    cx.fillStyle=C.face;cx.globalAlpha=0.07;
+    for(var i=0;i<face.length;i+=6){
+      var fp=face[i];
+      cx.fillRect(mx(fp.x)-0.5,my(fp.y)-0.5,1,1);
+    }
+    cx.globalAlpha=1;
+
+    // Cheek / jaw structure lines
+    var jawL=[234,93,132,58,172,136,150,149,176,148,152];
+    var jawR=[454,323,361,288,397,365,379,378,400,377,152];
+    fPath(face,jawL,C.face,0.1,0.5);
+    fPath(face,jawR,C.face,0.1,0.5);
+
+    // Forehead cross-lines
+    var fhL=[10,67,109,10];
+    var fhR=[10,296,337,10];
+    fPath(face,fhL,C.face,0.08,0.4);
+    fPath(face,fhR,C.face,0.08,0.4);
+  }
+
+  document.getElementById('sb').textContent=bCnt;
+  document.getElementById('sh').textContent=hCnt;
+  document.getElementById('sfc').textContent=fCnt;
+}
+
+// Render loop
+function loop(ts){
+  fc++;
+  if(ts-lt>=1000){fps=fc;fc=0;lt=ts;document.getElementById('sf').textContent=fps}
+  draw(ts);
+  requestAnimationFrame(loop);
+}
+
+// Detection (throttled)
+var det=false;
+function doDetect(h){
+  if(det)return;det=true;
+  h.send({image:vid}).then(function(){det=false}).catch(function(){det=false});
+}
+
+function setLog(t){lmEl.style.display='block';lmEl.innerHTML=t}
+
+function startApp(){
+  document.getElementById('startBtn').disabled=true;
+  document.getElementById('startBtn').style.opacity='0.4';
+  stEl.textContent='ЗАГРУЗКА...';stEl.className='loading';
+  setLog('Запрашиваю камеру...');
+
+  navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720},facingMode:'user'}})
+  .then(function(stream){
+    vid.srcObject=stream;return vid.play();
+  })
+  .then(function(){
+    setLog('Камера OK ✓<br>Загружаю MediaPipe Holistic...<br><span style="font-size:8px;color:rgba(255,255,255,0.2)">~15-30 сек</span>');
+
+    var h=new window.Holistic({locateFile:function(f){return'https://cdn.jsdelivr.net/npm/@mediapipe/holistic@0.5.1675471629/'+f}});
+    h.setOptions({modelComplexity:1,smoothLandmarks:true,enableSegmentation:false,refineFaceLandmarks:true,minDetectionConfidence:0.5,minTrackingConfidence:0.5});
+    h.onResults(function(res){R=res});
+
+    setLog('Камера OK ✓<br>Инициализация нейросети...');
+    return h.initialize().then(function(){return h});
+  })
+  .then(function(h){
+    setLog('Готово ✓');
+    resize();window.addEventListener('resize',resize);
+    stEl.textContent='АКТИВНО';stEl.className='active';
+    setTimeout(function(){ovEl.classList.add('h')},250);
+    requestAnimationFrame(loop);
+    setInterval(function(){doDetect(h)},42);
+  })
+  .catch(function(err){
+    console.error(err);
+    stEl.textContent='ОШИБКА';stEl.className='error';
+    setLog('<span style="color:#ff3e8a">'+err.message+'</span><br><span style="color:rgba(255,255,255,0.3);font-size:9px">Chrome + камера + интернет</span>');
+    document.getElementById('startBtn').disabled=false;
+    document.getElementById('startBtn').style.opacity='1';
+  });
+}
+</script>
+</body>
+</html>
